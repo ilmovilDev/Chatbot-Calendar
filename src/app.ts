@@ -4,8 +4,13 @@ import { adapterProvider } from './provider'
 import { adapterDB } from './databse'
 import { adapterFlow } from './flows'
 import envConfig from './config/env.config'
+import { OpenAIService } from './services/openai'
 
+/** Puerto en el que se ejecutará el servidor */
 const PORT = envConfig.port ?? 3000;
+
+/** Instancia de la clase AI */
+const openai = new OpenAIService(envConfig.openaiApiKey, 'gpt-3.5-turbo')
 
 const main = async () => {
     
@@ -13,7 +18,7 @@ const main = async () => {
         flow: adapterFlow,
         provider: adapterProvider,
         database: adapterDB,
-    })
+    }, { extensions: { openai } })
 
     /**
      * Ruta POST para enviar mensajes
