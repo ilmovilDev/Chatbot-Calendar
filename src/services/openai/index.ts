@@ -1,9 +1,11 @@
 import OpenAI from "openai";
 import { ChatCompletionMessageParam } from "openai/resources";
 import { defaultChatConfig } from "~/utils/constants";
+import { MESSAGES } from "~/utils/messages";
+import handleErros from "~/utils/methods/handleErros";
 
 type CreateChatParams = {
-    messages: ChatCompletionMessageParam[];
+    messages?: ChatCompletionMessageParam[];
     prompt: string;
     model?: string;
 };
@@ -30,7 +32,7 @@ export class OpenAIService {
 
     async createChat({ messages, prompt, model }: CreateChatParams): Promise<string> {
         try {
-            const response = await this.openai.chat.completions.create({
+            const completion = await this.openai.chat.completions.create({
                 model: model || this.model,
                 messages: [
                     { role: "system", content: prompt },
@@ -39,22 +41,65 @@ export class OpenAIService {
                 ...this.defaultChatConfig,
             });
 
-            return response.choices[0]?.message?.content || "No hay contenido disponible.";
+            return completion.choices[0]?.message?.content || "No hay contenido disponible.";
         } catch (error) {
-            this.logError("createChat", error);
-            throw new Error("No se pudo completar el chat. Inténtalo de nuevo más tarde..");
+            handleErros({
+                location: "OpenAIService[createChat]",
+                error,
+                errorMessage: MESSAGES.ERROR_CREATE_CHAT
+            })
         }
     }
 
+    async determineChatFn(prompt: string): Promise<{ prediction: string }> {
+        try {
+            const completion = await this.openai.chat.completions.create({
+                model: this.model,
+                messages: [{ role: "system", content: prompt }],
+                functions: [
+                    {
+                        name: "fn_get_prediction_intent",
+                        description: "Predict the user intention for a given conversation, such as scheduling or general inquiry.",
+                        parameters: {
+                            type: "object",
+                            properties: {
+                                prediction: {
+                                    type: "string",
+                                    description: "The predicted user intention.",
+                                    enum: [
+                                        "SCHEDULE", // To cover agendar, programar, marcar, etc.
+                                        "INQUIRE",  // To cover consultas o preguntas generales.
+                                    ],
+                                },
+                            },
+                            required: ["prediction"],
+                        },
+                    },
+                ],
+                function_call: { name: "fn_get_prediction_intent" },
+                ...this.defaultChatConfig,
+            });
+    
+            const response = JSON.parse(completion.choices[0].message.function_call?.arguments || "{}");
+            if (!response || !response.prediction) {
+                throw new Error("No prediction returned.");
+            }
+    
+            return response;
+        } catch (error) {
+            handleErros({
+                location: "OpenAIService[determineChatFn]",
+                error,
+                errorMessage: MESSAGES.ERROR_DETERMINE_INTENT
+            })
+        }
+    }
+    
     // PRIVATE METHODS
     private validateApiKey(apiKey: string): void {
         if (!apiKey || apiKey.trim().length === 0) {
-            throw new Error("API key is missing or invalid.");
+            throw new Error(MESSAGES.ERROR_INVALID_API_KEY);
         }
-    }
-
-    private logError(methodName: string, error: unknown): void {
-        console.error(`[OpenAIService.${methodName}]:`, error);
     }
 
 }
